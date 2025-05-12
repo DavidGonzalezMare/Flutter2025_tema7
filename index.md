@@ -17,6 +17,8 @@ En este apartado, vamos a centrarnos en la persistencia mediante bases de datos.
 
 [5. Utilización del código generado](#_apartado5)
 
+[6. Aplicación Floor Estudiantes](#_apartado6)
+
 
 # <a name="_apartado1"></a>1. La librería Floor
 
@@ -317,7 +319,7 @@ class FavoritosRepository {
   // en la inicialización
   static final FavoritosRepository _instance = FavoritosRepository._();
 
-  // Quan se'ns demane el repositori retornem la instància.
+  // Cuando se nos pida el repositorio, se devuelve la instancia única.
   factory FavoritosRepository() {
     return _instance;
   }
@@ -325,7 +327,7 @@ class FavoritosRepository {
   // Connexión a la base de datos
   Future<void> connectaDB() async {
     if (_database == null) {
-      // Creamos la BD únicamentes si no se ha creado ya
+      // Creamos la BD únicamente si no se ha creado ya
       _database = await $FloorAppPlanetasDB
           .databaseBuilder('planetas_database.db')
           .build();
@@ -360,6 +362,11 @@ El resto de métodos de esta clase (`findAll`, `insertPlanet` y `deletePlanet`) 
 # Creación del Provider
 
 Siguiendo con el patrón *Provider*, es hora de crear ahora el componente principal, el propio `Provider`.
+
+Instalamos la librería:
+```
+flutter pub add provider
+```
 
 En primer lugar, el *Provider* se define como un `mixin` de `ChangeNotifier`, y en él definimos una referencia privada en el repositorio:
 
@@ -641,4 +648,543 @@ Para ello, será necesario instalar los paquetes `sqlite` y `libsqlite3-dev` con
 
 ```
 $ sudo apt install sqlite libsqlite3-dev
+```
+
+# <a name="_apartado6"></a>6. Aplicación Floor Estudiantes
+
+Vamos a seguir los pasos que hemos visto en los apartados anteriores para crear una aplicación de gestión de estudiantes.
+
+## Configuración de las dependencias
+
+Una vez creado nuestro nuevo proyecto de flutter vamos a añadirle las dependencias necesarias, de runtime:
+
+```
+flutter pud add floor
+```
+
+y de desarrollo:
+
+```
+flutter pub add dev:floor_generator
+flutter pub add dev:build_runner
+```
+
+## Creación de la entidad Student
+
+Creamos en este punto nuestra carpeta `/lib/model` y dentro de la misma el fichero `student_entity.dart` y que tendrá el siguiente código:
+
+```dart
+import 'package:floor/floor.dart';
+
+@entity
+class Student {
+  @primaryKey
+  final int? id;  // Nullable for auto-increment
+
+  @ColumnInfo(name: 'name')
+  final String name;
+  
+  @ColumnInfo(name: 'age')
+  final int age;
+
+  const Student({this.id, required this.name, required this.age});
+}
+```
+
+## Creación del DAO (Data Access Object)
+
+Creamos el DAO que recordemos que es una interfaz con anotaciones para definir métodos para la BD como creación, lectura, actualización y eliminar.
+
+Dentro de la carpeta `lib/model` creamos el fichero student_dao con el siguiente código:
+
+```dart
+import 'package:floor/floor.dart';
+import 'package:flutter_students_borrar/model/student_entity.dart';
+
+@dao
+abstract class StudentDao {
+  @Query('SELECT * FROM Student')
+  Future<List<Student>> getAllStudents();
+
+  @Query('SELECT * FROM Student')
+  Stream<List<Student>> streamAllStudents();  // Real-time updates
+
+  @Insert(onConflict: OnConflictStrategy.ignore)
+  Future<void> insertStudent(Student student);
+
+  @Query('DELETE FROM Student WHERE id = :id')
+  Future<void> deleteStudentById(int id);
+}
+```
+
+## Creación de la Base de Datos
+
+Al igual que hicimos en los apartados anteriores, una vez que tenemos creadas las entidades y los dao, generamos la clase para la Base de Datos que hereda de `FloorDatabase`.
+Se llamará `app_database.dart` y de nuevo estará en la carpeta `lib/model`:
+
+```dart
+import 'dart:async';
+import 'package:floor/floor.dart';
+import 'package:sqflite/sqflite.dart' as sqflite;
+import 'student_entity.dart';
+import 'student_dao.dart';
+
+part 'app_database.g.dart';  // Generated file
+
+@Database(version: 1, entities: [Student])
+abstract class AppDatabase extends FloorDatabase {
+  StudentDao get studentDao;
+
+  static Future<AppDatabase> init() async {
+    return await $FloorAppDatabase
+        .databaseBuilder('app_database.db')
+        .build();
+  }
+}
+```
+
+## Generación de código
+
+Hacemos ahora la generación automática de código para acceder a la BD.
+
+Recordemos que lo podemos hacer con:
+
+```
+dart run build_runner build
+```
+
+o bien, para regenerar el código:
+
+```
+dart run build_runner watch  
+```
+
+Se nos creará el fichero ```app_database.g.dart``` si no ha habido ningún error.
+
+## Creación del repositiorio
+
+Creamos a continuación la carpeta `lib/repository` y en ella el fichero `app_repository` donde crearemos una instancia del repositorio y llamaremos abriremos la BD y tendremos la llamada a las funciones CRUD de la misma:
+
+```dart
+import 'package:flutter_students_borrar/model/app_database.dart';
+import 'package:flutter_students_borrar/model/student_dao.dart';
+import 'package:flutter_students_borrar/model/student_entity.dart';
+
+class AppRepository {
+  AppDatabase? _database; // Referencia a la BD
+  StudentDao? _dao;         // Referencia al DAO
+
+  AppRepository._();    // Constructor privat
+
+  // Instancia única del repositorio. La podemos crear directamente
+  // en la inicialización
+  static final AppRepository _instance = AppRepository._();
+
+  // Cuando se nos pida el repositorio, se devuelve la instancia única.
+  factory AppRepository() {
+    return _instance;
+  }
+
+  // Connexión a la base de datos
+  Future<void> connectaDB() async {
+    if (_database == null) {
+      // Creamos la BD únicamentes si no se ha creado ya
+      _database = await $FloorAppDatabase
+          .databaseBuilder('app_database.db')
+          .build();
+
+      // Creamos el DAO
+      _dao = _database?.studentDao;
+    }
+  }
+
+  // Añadimos como métodos del repositorio los propios de la clase DAO
+  Stream<List<Student>> streamAllStudents() {
+    return _dao?.streamAllStudents() ?? const Stream.empty();
+  }
+
+  // ESTE NO LO TENGO CLARO
+  Future <List<Student>> getAllStudents() {
+    return _dao?.getAllStudents() ?? Future.value();
+  }
+
+  Future<void> insertStudent(Student student) {
+    return _dao?.insertStudent(student) ?? Future.value();
+  }
+
+  Future<void> deleteStudentById(int id) {
+    return _dao?.deleteStudentById(id) ?? Future.value();
+  }
+}
+```
+
+## Creación del Provider
+
+Al igual que en la aplicación que vimos en los apartados anteriores nuestra app va a seguir el patrón Provider, creando el fichero `lib/provider/app_provider.dart`:
+
+```dart
+import 'package:flutter/foundation.dart';
+import 'package:flutter_students_borrar/model/student_entity.dart';
+import 'package:flutter_students_borrar/repository/app_respository.dart';
+
+class AppProvider with ChangeNotifier {
+  final AppRepository _repository = AppRepository();
+
+  AppProvider() {
+    // En el constructor cargamos la BD
+    _cargaBaseDatos();
+  }
+
+  Future<void> _cargaBaseDatos() async {
+    // Esperamos a tener una conexión lista a la BD
+    await _repository.connectaDB();
+    notifyListeners();
+  }
+
+  Stream<List<Student>>? streamAllStudents() {
+    return _repository.streamAllStudents();
+  }
+
+  Future<List<Student>>? getAllStudents() {
+    return _repository.getAllStudents();
+  }
+
+  Future<void> insertStudent(Student student) async {
+    await _repository.insertStudent(student);
+    notifyListeners();
+  }
+
+  Future<void> deleteStudentById(int id) async {
+    await _repository.deleteStudentById(id);
+    notifyListeners();
+  }
+}
+```
+
+## Creación de la interfaz
+
+Creamos un fichero `/lib/screens/students_screen.dart`
+
+En primer lugar tendremos la definición de la interfaz con una clase `Stateful`:
+
+```dart
+class StudentsScreen extends StatefulWidget {
+  const StudentsScreen({super.key});
+
+  @override
+  _StudentsScreenState createState() => _StudentsScreenState();
+}
+```
+
+Y en ella tendremos la definición del estado en el que tendremos un `Scafold` que utiliza un StreamBuilder ya que la llamada a recoger todos los estudiantes devuelve un Stream.
+
+```dart
+class _StudentsScreenState extends State<StudentsScreen> {
+@override
+void initState() {
+  super.initState();
+}
+
+@override
+Widget build(BuildContext context) {
+  // Definimos la referencia al provider
+  var appProvider = Provider.of<AppProvider>(context);
+
+  return Scaffold(
+    appBar: AppBar(title: const Text('Student Database')),
+    // StreamBuilder connecta con la llamada a todos los estudiantes
+    body: StreamBuilder<List<Student>>(
+      stream: appProvider.streamAllStudents(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        } else if (snapshot.hasError) {
+          return Center(child: Text('Error: \${snapshot.error}'));
+        } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return const Center(
+            child: Text(
+              'No students yet! Tap the + button to add one.',
+              textAlign: TextAlign.center,
+            ),
+          );
+        }
+
+        // Mostramos la lista de estudiantes
+        final students = snapshot.data!;
+        return _creaListViewStudents(students, appProvider);
+      },
+    ),
+
+    floatingActionButton: FloatingActionButton(
+      onPressed: () => _showAddDialog(appProvider),
+      tooltip: 'Add Student',
+      child: const Icon(Icons.add),
+    ),
+  );
+}
+```
+
+Como vemos el builder de StreamBuilder evalúa el snapshot para ver si tenemos datos. 
+En el momento que tenemos la lista de estudiantes llamamos al método `_creaListViewStudents`.
+
+Fijémonos también que el floatingActionButton llama al pulsarle al método `_showAddDialog`.
+
+Vemos a continuación el método `_creaListViewStudents`:
+
+```dart
+ListView _creaListViewStudents(List<Student> students, AppProvider appProvider) {
+  return ListView.separated(
+    itemCount: students.length,
+    separatorBuilder: (context, index) => const Divider(height: 1),
+    itemBuilder: (context, index) {
+      final student = students[index];
+      return ListTile(
+        leading: CircleAvatar(
+          child: Text('${index + 1}'),
+        ),
+        title: Text(student.name),
+        subtitle: Text('Age: ${student.age}'),
+        trailing: IconButton(
+          icon: const Icon(Icons.delete),
+          onPressed: () async {
+            // Delete the student when the button is pressed
+            await appProvider.deleteStudentById(student.id!);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('\${student.name} deleted')),
+            );
+          },
+        ),
+      );
+    },
+  );
+}
+
+```
+
+Creamos un ListView en este método cuyos elementos están formados por un ListTile en el que cada uno de ellos tiene el nombre y la edad del estudiante, así como un botón para borrarlo de la BD:
+
+![App Students](./images/imagen03.png)
+
+Y este sería el método llamado desde el `floatingActionButton` para crear un diálogo que nos permite añadir estudiantes a la BD:
+
+```dart
+void _showAddDialog(AppProvider appProvider) {
+  final nameController = TextEditingController();
+  final ageController = TextEditingController();
+
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Add New Student'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: nameController,
+            decoration: const InputDecoration(
+              labelText: 'Name',
+              hintText: 'Enter student name',
+            ),
+            textCapitalization: TextCapitalization.words,
+            autofocus: true,
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: ageController,
+            decoration: const InputDecoration(
+              labelText: 'Age',
+              hintText: 'Enter student age',
+            ),
+            keyboardType: TextInputType.number,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () async {
+            // Validate input
+            if (nameController.text.isEmpty || ageController.text.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Please fill all fields')),
+              );
+              return;
+            }
+
+            int? age = int.tryParse(ageController.text);
+            if (age == null || age <= 0) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Please enter a valid age')),
+              );
+              return;
+            }
+
+            // Save the student to the database
+            await appProvider.insertStudent(
+              Student(
+                id: null, // Let the database assign an ID
+                name: nameController.text.trim(),
+                age: age,
+              ),
+            );
+
+            if (mounted) {
+              Navigator.pop(context);
+              // UI updates automatically thanks to StreamBuilder!
+            }
+          },
+          child: const Text('Save'),
+        ),
+      ],
+    ),
+  );
+}
+
+```
+
+Por último, recordemos también que, en este caso, como estamos haciendo uso de un `Provider`, en el `main.dart`, habrá que rodear la aplicación `Material` con un `ChangeNotifyProvider` para que se redibuje la interfaz cuando lo notifique el provider:
+
+```dart
+class MainApp extends StatelessWidget {
+  const MainApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ChangeNotifierProvider(
+      create: (BuildContext context) => AppProvider(),
+      child: const MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'App con BD de Estudiantes',
+        home: StudentsScreen(),
+        ),
+    );
+  }
+}
+```
+
+
+## Modificación de la app para no utilizar StreamBuilder
+
+Vamos a modificar la app de manera que podamos quitar la utilización de StreamBuilder de la pantalla de estudiantes y sea el Provider el que se encargue de ir cargando los estudiantes y notificando a la interfaz cuando hay cambios.
+
+En primer lugar vamos a añadir una lista de estudiantes local al `AppProvider`, así como una función local que llama al repositorio y una propiedad get que devuelve esa lista de estudiantes local:
+
+```dart
+class AppProvider with ChangeNotifier {
+  final AppRepository _repository = AppRepository();
+  // Esta es la lista de estudiantes local.
+  List<Student>? _students;
+
+  AppProvider() {
+    // En el constructor cargamos la BD
+    _cargaBaseDatos();
+  }
+
+  Future<void> _cargaBaseDatos() async {
+    // Esperamos a tener una conexión lista a la BD
+    await _repository.connectaDB();
+    notifyListeners();
+  }
+
+  // Getter para obtener la lista de estudiantes
+  // Este getter llama a un método privado que carga la lista de estudiantes
+  get listaStudents {
+    _getAllStudentAsync();
+
+    return _students;
+  }
+
+  // Método local para obtener la lista de estudiantes de manera asincrona	
+  // y notificar a los listeners.
+  _getAllStudentAsync() async {
+    // Para probar que realmente sale el CircularProgressIndicator
+    // y no se queda colgado, he puesto un delay de 5 segundos.
+    // En la práctica no es necesario. Comentar la línea de abajo
+    await Future.delayed(const Duration(seconds: 5));
+    _students = await getAllStudents();
+    notifyListeners();
+  }
+
+  Stream<List<Student>>? streamAllStudents() {
+    return _repository.streamAllStudents();
+  }
+
+  Future<List<Student>>? getAllStudents() {
+    return _repository.getAllStudents();
+  }
+
+  Future<void> insertStudent(Student student) async {
+    await _repository.insertStudent(student);
+    notifyListeners();
+  }
+
+  Future<void> deleteStudentById(int id) async {
+    await _repository.deleteStudentById(id);
+    notifyListeners();
+  }
+}
+```
+
+Y ahora en `StudentsScreen` simplemente comprobamos si la lista de estudiantes es nula.
+El propio `Provider` se encarga de actualizar la interfaz cuando hay cambios en la lista de estudiantes:
+
+```dart
+class StudentsScreen extends StatefulWidget {
+  const StudentsScreen({super.key});
+
+  @override
+  _StudentsScreenState createState() => _StudentsScreenState();
+}
+
+class _StudentsScreenState extends State<StudentsScreen> {
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Definimos la referencia al provider
+    var appProvider = Provider.of<AppProvider>(context);
+    List<Student>? students = appProvider.listaStudents;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Student Database')),
+      // StreamBuilder connecta con la llamada a todos los estudiantes
+      body: 
+           _creaListViewStudents(students, appProvider),
+
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _showAddDialog(appProvider),
+        tooltip: 'Add Student',
+        child: const Icon(Icons.add),
+      ),
+    );
+  }
+
+...
+
+}
+```
+
+El método `_creaListViewStudents` tiene un pequeño cambio ya que ahora la lista de estudiantes sí puede ser null:
+
+```dart
+  Widget _creaListViewStudents(List<Student>? students, AppProvider appProvider) {
+    if (students == null) {      
+      return  MyCircularProgress();
+    }
+
+    return ListView.separated(
+      itemCount: students.length,
+      separatorBuilder: (context, index) => const Divider(height: 1),
+      itemBuilder: (context, index) {
+
+...
+
+  }
 ```
