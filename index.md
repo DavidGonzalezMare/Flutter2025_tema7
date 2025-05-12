@@ -803,9 +803,8 @@ class AppRepository {
     return _dao?.streamAllStudents() ?? const Stream.empty();
   }
 
-  // ESTE NO LO TENGO CLARO
   Future <List<Student>> getAllStudents() {
-    return _dao?.getAllStudents() ?? Future.value();
+    return _dao?.getAllStudents() ?? Future.value([]);
   }
 
   Future<void> insertStudent(Student student) {
@@ -1171,7 +1170,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
 }
 ```
 
-El método `_creaListViewStudents` tiene un pequeño cambio ya que ahora la lista de estudiantes sí puede ser null:
+El método `_creaListViewStudents` tiene un pequeño cambio ya que ahora la lista de estudiantes sí puede ser `null` y además devuelve `Widget` ya que cuando `students` sea `null` devuelve el `MyCircularProgress`:
 
 ```dart
   Widget _creaListViewStudents(List<Student>? students, AppProvider appProvider) {
